@@ -24,6 +24,7 @@ typedef struct {
 
   systime_t window_start_time;
   systime_t window_time;
+  output_status_t status;
 } relay_output_t;
 
 
@@ -87,10 +88,17 @@ output_thread(void* arg)
   relay_output_t* output = arg;
   chRegSetThreadName("output");
 
+  output->status.output = output->id;
+
   while (1) {
     palClearPad(GPIOC, output->gpio);
+    output->status.enabled = 0;
+    msg_send(MSG_OUTPUT_STATUS, &output->status);
     chThdSleepSeconds(30);
+
     palSetPad(GPIOC, output->gpio);
+    output->status.enabled = 1;
+    msg_send(MSG_OUTPUT_STATUS, &output->status);
     chThdSleepSeconds(30);
   }
 
