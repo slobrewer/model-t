@@ -87,20 +87,11 @@ output_thread(void* arg)
   relay_output_t* output = arg;
   chRegSetThreadName("output");
 
-  /* Wait 1 compressor delay before starting window */
-  cycle_delay(output->id);
-
-  output->window_start_time = chTimeNow();
-  palSetPad(GPIOC, output->gpio);
-
   while (1) {
-    if (!output->sensor_active) {
-      palClearPad(GPIOC, output->gpio);
-    }
-    else {
-      relay_control(output);
-    }
-    chThdSleepSeconds(1);
+    palClearPad(GPIOC, output->gpio);
+    chThdSleepSeconds(30);
+    palSetPad(GPIOC, output->gpio);
+    chThdSleepSeconds(30);
   }
 
   return 0;
