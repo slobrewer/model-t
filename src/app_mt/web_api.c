@@ -17,6 +17,8 @@
 #include "net.h"
 #include "sensor.h"
 #include "app_cfg.h"
+#include "snacka_backend/iocallbacks_socket.h"
+#include "snacka_backend/cryptocallbacks_chibios.h"
 
 #ifndef WEB_API_HOST
 #define WEB_API_HOST_STR "brewbit.herokuapp.com"
@@ -85,8 +87,35 @@ start_update(web_api_t* api, const char* ver);
 static void
 send_sensor_report(web_api_t* api);
 
+static void
+dispatch_device_settings(DeviceSettingsNotification* settings);
+
 
 static web_api_t* api;
+
+static const snIOCallbacks iocb = {
+    .initCallback = snSocketInitCallback,
+    .deinitCallback = snSocketDeinitCallback,
+    .connectCallback = snSocketConnectCallback,
+    .disconnectCallback = snSocketDisconnectCallback,
+    .readCallback = snSocketReadCallback,
+    .writeCallback = snSocketWriteCallback,
+    .timeCallback = snSocketTimeCallback
+};
+
+static const snCryptoCallbacks cryptcb = {
+    .randCallback = snChRandCallback,
+    .shaCallback = snChShaCallback
+};
+
+static const snWebsocketSettings ws_settings = {
+    .maxFrameSize = 2048,
+    .logCallback = NULL,
+    .frameCallback = NULL,
+    .ioCallbacks = &iocb,
+    .cryptoCallbacks = &cryptcb,
+    .cancelCallback = NULL
+};
 
 
 void
@@ -100,7 +129,8 @@ web_api_init()
         websocket_message_rx,
         NULL, // closed callback
         NULL, // error callback
-        api);
+        api,
+        &ws_settings);
 
   msg_listener_t* l = msg_listener_create("web_api", 2048, web_api_dispatch, api);
   msg_listener_set_idle_timeout(l, 250);
@@ -172,6 +202,11 @@ set_state(web_api_t* api, api_state_t state)
   }
 }
 
+snHTTPHeader device_id_header = {
+    .name = "Device-ID",
+    .value = device_id
+};
+
 static void
 web_api_idle(web_api_t* api)
 {
@@ -181,7 +216,7 @@ web_api_idle(web_api_t* api)
       break;
 
     case AS_CONNECT:
-      snWebsocket_connect(api->ws, WEB_API_HOST_STR, NULL, NULL, WEB_API_PORT);
+      snWebsocket_connect(api->ws, WEB_API_HOST_STR, NULL, NULL, WEB_API_PORT, &device_id_header, 1);
       set_state(api, AS_CONNECTING);
       break;
 
@@ -266,7 +301,7 @@ request_auth(web_api_t* api)
   ApiMessage* msg = calloc(1, sizeof(ApiMessage));
   msg->type = ApiMessage_Type_AUTH_REQUEST;
   msg->has_authRequest = true;
-  strcpy(msg->activationTokenRequest.device_id, device_id);
+  strcpy(msg->authRequest.device_id, device_id);
   sprintf(msg->authRequest.auth_token, app_cfg_get_auth_token());
 
   send_api_msg(api->ws, msg);
@@ -395,9 +430,40 @@ dispatch_api_msg(web_api_t* api, ApiMessage* msg)
     msg_send(MSG_API_FW_CHUNK, &msg->firmwareDownloadResponse);
     break;
 
+  case ApiMessage_Type_DEVICE_SETTINGS_NOTIFICATION:
+    dispatch_device_settings(&msg->deviceSettingsNotification);
+    break;
+
   default:
     printf("Unsupported API message: %d\r\n", msg->type);
     break;
+  }
+}
+
+static void
+dispatch_device_settings(DeviceSettingsNotification* settings)
+{
+  int i;
+  for (i = 0; i < settings->output_count; ++i) {
+    output_settings_t os;
+    OutputSettings* osm = &settings->output[i];
+
+    os.compressor_delay.value = osm->compressor_delay;
+    os.compressor_delay.unit = UNIT_TIME_MIN;
+    os.function = osm->function;
+    os.trigger = osm->trigger_probe_id;
+
+    app_cfg_set_output_settings(osm->id, &os);
+  }
+
+  for (i = 0; i < settings->sensor_count; ++i) {
+    sensor_settings_t ss;
+    SensorSettings* ssm = &settings->sensor[i];
+
+    ss.setpoint.value = ssm->setpoint;
+    ss.setpoint.unit = UNIT_TEMP_DEG_C;
+
+    app_cfg_set_sensor_settings(ssm->id, &ss);
   }
 }
 
