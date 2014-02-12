@@ -111,28 +111,40 @@ relay_control(relay_output_t* output)
   const output_settings_t* output_settings = app_cfg_get_output_settings(output->id);
   const sensor_settings_t* sensor_settings = app_cfg_get_sensor_settings(output_settings->trigger);
 
+  output->status.output = output->id;
+
   switch(output->output_mode) {
   case ON_OFF:
     if (output_settings->function == OUTPUT_FUNC_HEATING) {
 	  if (inputs[output->id].last_sample.value < sensor_settings->setpoint.value) {
 	    palSetPad(GPIOC, output->gpio);
+	    output->status.enabled = 1;
+	    msg_send(MSG_OUTPUT_STATUS, &output->status);
 	  }
 	  else {
         palClearPad(GPIOC, output->gpio);
+        output->status.enabled = 0;
+        msg_send(MSG_OUTPUT_STATUS, &output->status);
 	  }
 	}
 	else {
 	  if (inputs[output->id].last_sample.value > sensor_settings->setpoint.value) {
 	    palSetPad(GPIOC, output->gpio);
+      output->status.enabled = 1;
+      msg_send(MSG_OUTPUT_STATUS, &output->status);
 	  }
 	  else {
 	    palClearPad(GPIOC, output->gpio);
+      output->status.enabled = 0;
+      msg_send(MSG_OUTPUT_STATUS, &output->status);
 	  }
 	}
 	break;
   case PID:
     if ((chTimeNow() - output->window_start_time) >= output->pid_control.pid_output) {
 	  palClearPad(GPIOC, output->gpio);
+    output->status.enabled = 0;
+    msg_send(MSG_OUTPUT_STATUS, &output->status);
 
 	  chThdSleepSeconds(1);
 	  // TODO: MAKE SURE THE TIME IS >= 0

@@ -34,7 +34,6 @@ typedef struct {
   output_function_t function;
   sensor_id_t trigger;
   quantity_t compressor_delay;
-  quantity_t setpoint;
 } output_settings_t;
 
 typedef struct {
